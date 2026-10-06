@@ -1,0 +1,24 @@
+# core
+langgraph
+langchain-core
+langchain-google-genai
+python-dotenv
+pydantic>=2
+numpy
+
+# ingestion
+pdfplumber            # tables + layout (pulls in pypdfium2 for page rendering)
+python-docx
+openpyxl
+pillow
+
+# embeddings (token-aware chunking uses the model's own tokenizer)
+langchain-huggingface
+sentence-transformers
+transformers
+
+# optional OCR for scanned pages / images (also install the Tesseract binary)
+pytesseract
+
+# tests
+pytest
