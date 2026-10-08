@@ -20,7 +20,7 @@ from ingestion.table_utils import NULLISH, norm_name
 
 from .schema import (
     DataQualityFlag, GenericTable, MasterRecord, MonthlyPerformance,
-    ValueGroup, ValueItem,
+    StructuredTable, ValueGroup, ValueItem,
 )
 
 MASTER_ALIASES = {
@@ -233,6 +233,16 @@ def to_generic(meta: dict) -> GenericTable:
     )
 
 
+def to_structured(meta: dict) -> StructuredTable:
+    pages = meta.get("pages") or [meta.get("page")]
+    return StructuredTable(
+        table_name=meta.get("title") or meta.get("heading") or "Untitled table",
+        page_number=pages[0] if pages else None,
+        headers=list(meta.get("headers") or meta.get("columns", [])),
+        rows=[list(row) for row in meta.get("rows", [])],
+    )
+
+
 # --------------------------------------------------------------------------
 # entry point
 # --------------------------------------------------------------------------
@@ -240,7 +250,8 @@ def to_generic(meta: dict) -> GenericTable:
 def parse_tables(documents) -> dict:
     """All table elements -> typed lists.  ``documents`` = cleaned loader output."""
     out = {"master_records": [], "monthly_performance": [], "value_groups": [],
-           "data_quality_flags": [], "other_tables": [], "table_ids": {}}
+           "data_quality_flags": [], "other_tables": [], "ancillary_tables": [],
+           "table_ids": {}}
 
     for doc in documents:
         meta = doc.metadata
@@ -272,4 +283,5 @@ def parse_tables(documents) -> dict:
                 continue
 
         out["other_tables"].append(to_generic(meta))
+        out["ancillary_tables"].append(to_structured(meta))
     return out

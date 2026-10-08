@@ -68,7 +68,7 @@ def _is_bold(fontname: str) -> bool:
 
 def _is_real_table(rows) -> bool:
     cells = [c for row in rows for c in row if c is not None and str(c).strip()]
-    return len(rows) >= 2 and len(cells) >= 3
+    return bool(cells)
 
 
 def _word_lines(page) -> list[list[dict]]:
@@ -107,7 +107,7 @@ def _detect_text_tables(page) -> list:
             ncols = max(set(len(r["cells"]) for r in run),
                         key=lambda n: sum(1 for r in run if len(r["cells"]) == n))
             full = [r for r in run if len(r["cells"]) == ncols]
-            if ncols >= 3 and len(full) / len(run) >= 0.6:
+            if ncols >= 2 and len(full) / len(run) >= 0.6:
                 anchors = [sorted(r["cells"][c]["x0"] for r in full)[len(full) // 2]
                            for c in range(ncols)]
                 rows = []

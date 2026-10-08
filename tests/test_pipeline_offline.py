@@ -14,6 +14,8 @@ from rag.embeddings import get_max_tokens, get_token_counter
 from rag.retriever import get_retriever
 from rag.vectorstore import create_vectorstore
 from extraction.table_parser import parse_date, parse_tables
+from extraction.extractor import create_extractor
+from output.txt_writer import write_txt
 
 SAMPLE = Path(__file__).resolve().parents[1] / "data" / "input" / "sample.pdf"
 pytestmark = pytest.mark.skipif(not SAMPLE.exists(), reason="sample.pdf missing")
@@ -96,6 +98,37 @@ def test_table_parser_counts(docs):
     assert ids == [f"R-{n}" for n in range(1001, 1065)]
     first = parsed["master_records"][0]
     assert (first.metric_a, first.metric_b, first.owner) == (4524, 24.6, None)
+
+
+def test_ancillary_tables_keep_all_rows_and_render_in_txt(docs, tmp_path):
+    parsed = parse_tables(docs)
+    ancillary = parsed["ancillary_tables"]
+    by_name = {table.table_name: table for table in ancillary}
+
+    archive = by_name["ARCHIVE MANIFEST | P03 TABLE 06"]
+    assert archive.page_number == 3
+    assert archive.headers == ["Bundle name", "Created date", "Checksum fragment"]
+    assert len(archive.rows) == 4
+    assert archive.rows[0] == ["bundle-03-1", "2026-10-16", "17711E"]
+
+    side_titles = {
+        doc.metadata["title"] for doc in docs
+        if doc.metadata.get("element_type") == "table" and doc.metadata.get("kind") == "side"
+    }
+    assert side_titles <= set(by_name)
+
+    extracted = create_extractor()(docs, {}, source_file=str(SAMPLE))
+    assert len(extracted.ancillary_tables) == len(ancillary)
+    assert extracted.report["ancillary_tables"] == len(ancillary)
+
+    output = tmp_path / "extracted.txt"
+    write_txt(extracted, output)
+    text = output.read_text(encoding="utf-8")
+    assert "Other Tables:" not in text
+    for table in extracted.ancillary_tables:
+        assert f"{table.table_name} (Page {table.page_number})" in text
+        for row in table.rows:
+            assert " | ".join(row) in text
 
 
 def test_dates_are_only_normalised_when_unambiguous():

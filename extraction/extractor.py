@@ -156,7 +156,7 @@ def create_extractor(llm=None):
             "value_groups": len(parsed["value_groups"]),
             "data_quality_flags": len(parsed["data_quality_flags"]),
             "field_notes": len(notes),
-            "other_tables": len(parsed["other_tables"]),
+            "ancillary_tables": len(parsed["ancillary_tables"]),
             "stitched_tables": sum(1 for d in documents if d.metadata.get("merged_parts", 1) > 1),
             "duplicate_ids": sorted({r.record_id for r in master if "duplicate_id" in r.flags}),
             "ambiguous_dates": sum(1 for r in master if "date_ambiguous" in r.flags),
@@ -171,6 +171,7 @@ def create_extractor(llm=None):
             data_quality_flags=parsed["data_quality_flags"],
             field_notes=notes,
             other_tables=parsed["other_tables"],
+            ancillary_tables=parsed["ancillary_tables"],
             warnings=warnings,
             report=report,
         )

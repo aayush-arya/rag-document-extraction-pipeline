@@ -244,6 +244,8 @@ def table_to_document(table: RawTable, source: str, file_type: str, table_id: st
         "page": table.pages[0],
         "pages": table.pages,
         "columns": table.columns,
+        "headers": (table.header_row if table.has_header and table.header_row
+                    else table.columns),
         "has_header": table.has_header,
         "n_rows": len(table.rows),
         "kind": table.kind,

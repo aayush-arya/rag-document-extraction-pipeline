@@ -70,9 +70,16 @@ def write_txt(extracted_data, output_path) -> str:
                ["flag_id", "area", "severity", "description"])
         _table(file, "FIELD NOTES", data["field_notes"], ["date_raw", "area", "text", "verified"])
 
-        file.write(f"\nOTHER TABLES ({len(data['other_tables'])}) - full rows are in the JSON output\n")
-        for table in data["other_tables"]:
-            file.write(f"  - {_fmt(table['title'])}: {table['n_rows']} rows, pages {table['pages']}\n")
+        file.write(f"\nANCILLARY TABLES ({len(data['ancillary_tables'])})\n-----------------\n")
+        for table in data["ancillary_tables"]:
+            file.write(f"\n{table['table_name']} (Page {_fmt(table['page_number'])})\n")
+            file.write("-" * (len(table["table_name"]) + 16) + "\n")
+            file.write("Headers: " + (" | ".join(_cell(header) for header in table["headers"])
+                                      if table["headers"] else "(none)") + "\n")
+            for row in table["rows"]:
+                file.write(" | ".join(_cell(cell) for cell in row) + "\n")
+            if not table["rows"]:
+                file.write("None found\n")
 
         if data["warnings"]:
             file.write("\nWARNINGS\n--------\n")

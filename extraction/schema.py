@@ -12,7 +12,7 @@ Raw text is always preserved (``date_raw`` ...); normalised values (``date_iso``
 are only filled when the raw value is unambiguous.
 """
 
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -113,6 +113,13 @@ class GenericTable(BaseModel):
     rows: list[dict[str, str]] = Field(default_factory=list)
 
 
+class StructuredTable(BaseModel):
+    table_name: str
+    page_number: Optional[int] = None
+    headers: List[str] = Field(default_factory=list)
+    rows: List[List[str]] = Field(default_factory=list)
+
+
 class ExtractedDocument(BaseModel):
     source_file: Optional[str] = None
     document_info: DocumentInfo = Field(default_factory=DocumentInfo)
@@ -122,5 +129,6 @@ class ExtractedDocument(BaseModel):
     data_quality_flags: list[DataQualityFlag] = Field(default_factory=list)
     field_notes: list[FieldNote] = Field(default_factory=list)
     other_tables: list[GenericTable] = Field(default_factory=list)
+    ancillary_tables: List[StructuredTable] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     report: dict[str, Any] = Field(default_factory=dict)
