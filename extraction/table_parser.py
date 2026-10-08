@@ -289,6 +289,36 @@ def to_structured(meta: dict) -> StructuredTable:
     )
 
 
+def to_unmapped_structured(meta: dict, mapping: dict[str, int]) -> Optional[StructuredTable]:
+    """Keep columns outside a typed schema visible as a separate raw table."""
+    columns = list(meta.get("headers") or meta.get("columns", []))
+    mapped_columns = set(mapping.values())
+    extra_columns = [index for index in range(len(columns)) if index not in mapped_columns]
+    if not extra_columns:
+        return None
+
+    rows = [
+        [row[index] if index < len(row) and row[index] is not None else "" for index in extra_columns]
+        for row in meta.get("rows", [])
+    ]
+    rows = [row for row in rows if any(value not in (None, "") for value in row)]
+    if not rows:
+        return None
+
+    pages = meta.get("pages") or [meta.get("page")]
+    title = meta.get("title") or meta.get("heading") or "Untitled table"
+    return StructuredTable(
+        table_name=f"{title} - additional columns",
+        page_number=pages[0] if pages else None,
+        headers=[columns[index] for index in extra_columns],
+        rows=rows,
+        file_name=meta.get("file_name"),
+        sheet_name=meta.get("sheet_name") or meta.get("sheet"),
+        sheet_index=meta.get("sheet_index"),
+        block_range=meta.get("block_range"),
+    )
+
+
 # --------------------------------------------------------------------------
 # entry point
 # --------------------------------------------------------------------------
@@ -301,6 +331,21 @@ def parse_tables(documents) -> dict:
 
     for doc in documents:
         meta = doc.metadata
+        if (meta.get("file_type") in {"xlsx", "xlsm"}
+                and meta.get("element_type") == "text"):
+            lines = [line for line in doc.page_content.splitlines() if line.strip()]
+            if lines:
+                out["ancillary_tables"].append(StructuredTable(
+                    table_name=meta.get("title") or meta.get("block_range") or "Spreadsheet text block",
+                    page_number=meta.get("page"),
+                    headers=["Text"],
+                    rows=[[line] for line in lines],
+                    file_name=meta.get("file_name"),
+                    sheet_name=meta.get("sheet_name") or meta.get("sheet"),
+                    sheet_index=meta.get("sheet_index"),
+                    block_range=meta.get("block_range"),
+                ))
+            continue
         if meta.get("element_type") != "table" or "rows" not in meta:
             continue
         columns = meta.get("columns", [])
@@ -320,6 +365,9 @@ def parse_tables(documents) -> dict:
             )
             if has_record_identity:
                 out["master_records"].extend(parse_master(meta, master))
+                additional_columns = to_unmapped_structured(meta, master)
+                if additional_columns:
+                    out["ancillary_tables"].append(additional_columns)
                 out["table_ids"].setdefault("master_records", []).append(meta.get("table_id"))
                 continue
             monthly = match_columns(columns, MONTHLY_ALIASES)

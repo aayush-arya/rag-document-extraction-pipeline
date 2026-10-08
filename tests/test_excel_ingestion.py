@@ -83,7 +83,7 @@ def test_excel_workbook_preserves_blocks_types_and_sheet_context(tmp_path):
     assert parsed["master_records"][0].date_iso == "2025-12-09"
     assert parsed["master_records"][0].metric_a == 12.56
     ancillary = parsed["ancillary_tables"]
-    assert len(ancillary) == 2
+    assert len(ancillary) == 3
     raw_import = next(table for table in ancillary if table.sheet_name == "Raw Imports")
     assert raw_import.file_name == "multi.xlsx"
     assert raw_import.sheet_index == 2
@@ -91,6 +91,7 @@ def test_excel_workbook_preserves_blocks_types_and_sheet_context(tmp_path):
     # Preserve the exact numeric literal stored in the XLSX XML (rather than
     # rounding it again through Python's binary float conversion).
     assert raw_import.rows[0] == ["MM/4471", "123456789.1234568"]
+    assert any(table.block_range == "Primary!A8:A9" for table in ancillary)
 
 
 def test_xlsm_uses_excel_loader(tmp_path):
@@ -230,13 +231,15 @@ def test_lower_right_table_after_large_blank_gap_exports_ai340(tmp_path):
         ):
             sheet.cell(row=row, column=column, value=value)
     sheet["AI340"] = "VAL-5262"
+    sheet["AA1144"] = "FRAGMENT 6 - SOURCE UNKNOWN"
+    sheet["AA1145"] = "VAL-6662"
     workbook.save(path)
 
     documents = load_document(str(path))
     table = next(
         doc for doc in documents
         if doc.metadata.get("element_type") == "table"
-        and doc.metadata.get("block_range") == "Ledger!AA331:AJ340"
+        and doc.metadata.get("block_range") == "Ledger!AA330:AJ340"
     )
     assert table.metadata["title"] == "LEGACY DATA / DO NOT SORT"
     assert len(table.metadata["rows"]) == 9
@@ -248,10 +251,50 @@ def test_lower_right_table_after_large_blank_gap_exports_ai340(tmp_path):
         and ancillary.rows[-1][8] == "VAL-5262"
         for ancillary in parsed["ancillary_tables"]
     )
+    fragment = next(
+        ancillary for ancillary in parsed["ancillary_tables"]
+        if ancillary.block_range == "Ledger!AA1144:AA1145"
+    )
+    assert fragment.rows == [["FRAGMENT 6 - SOURCE UNKNOWN"], ["VAL-6662"]]
     output = tmp_path / "deep-lower-right.txt"
     write_txt(ExtractedDocument(
         source_file=str(path),
         ancillary_tables=parsed["ancillary_tables"],
         other_tables=parsed["other_tables"],
     ), output)
-    assert "VAL-5262" in output.read_text(encoding="utf-8")
+    report = output.read_text(encoding="utf-8")
+    assert "VAL-5262" in report
+    assert "VAL-6662" in report
+
+
+def test_unmapped_columns_from_typed_excel_tables_are_reported(tmp_path):
+    path = tmp_path / "typed-with-side-values.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Messy_Data"
+    sheet.append([
+        "ID", "Name", "Date", "Status", "Department", "Location",
+        "Amount", "Priority", "Legacy Payload",
+    ])
+    sheet.append([
+        "REC-01144", "Diya Malhotra", "2024-04-22", "In Review",
+        "Support", "Bengaluru", 279259.39, "Low", "VAL-6662",
+    ])
+    workbook.save(path)
+
+    documents = load_document(str(path))
+    parsed = parse_tables(clean_documents(documents))
+    residual = next(
+        table for table in parsed["ancillary_tables"]
+        if table.table_name.endswith("additional columns")
+    )
+    assert residual.headers == ["Legacy Payload"]
+    assert residual.rows == [["VAL-6662"]]
+
+    output = tmp_path / "typed-with-side-values.txt"
+    write_txt(ExtractedDocument(
+        source_file=str(path),
+        master_records=parsed["master_records"],
+        ancillary_tables=parsed["ancillary_tables"],
+    ), output)
+    assert "VAL-6662" in output.read_text(encoding="utf-8")
