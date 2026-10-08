@@ -24,24 +24,39 @@ from .schema import (
 )
 
 MASTER_ALIASES = {
-    "record_id": ["id", "record id", "record", "ticket id", "ref"],
-    "date_raw": ["date", "event date", "timestamp"],
-    "entity_site": ["entity site", "entity", "site", "location"],
-    "category": ["category", "type", "class"],
-    "metric_a": ["metric a"],
-    "metric_b": ["metric b"],
-    "status": ["status", "state"],
-    "owner": ["owner", "assignee", "assigned to"],
+    "record_id": ["id", "record id", "record", "ticket id", "ref", "reference", "case id", "transaction id"],
+    "name": ["name", "full name", "customer", "customer name", "employee", "employee name"],
+    "date_raw": ["date", "record date", "event date", "timestamp", "created date", "updated date", "last updated", "order date", "transaction date"],
+    "entity_site": ["entity site", "entity", "site", "region", "branch"],
+    "location": ["location", "office", "city"],
+    "department": ["department", "dept", "business unit", "division", "team"],
+    "category": ["category", "type", "class", "classification"],
+    "amount": ["amount", "total amount", "sales", "revenue", "total"],
+    "quantity": ["quantity", "qty", "units", "count"],
+    "unit_price": ["unit price", "price per unit", "unit cost"],
+    "discount": ["discount", "discount pct", "discount percent", "discount amount"],
+    "priority": ["priority", "urgency"],
+    "email": ["email", "email address"],
+    "phone": ["phone", "phone number", "telephone"],
+    "product": ["product", "item", "service"],
+    "code": ["code", "product code", "sku"],
+    "score": ["score", "rating"],
+    "last_updated_raw": ["last updated", "updated at", "modified date"],
+    "metric_a": ["metric a", "amount", "value", "total"],
+    "metric_b": ["metric b", "measure b"],
+    "status": ["status", "record status", "state"],
+    "owner": ["owner", "assignee", "assigned to", "assigned group"],
+    "manager": ["manager", "supervisor", "lead"],
     "notes": ["notes", "note", "remarks", "comment", "comments"],
 }
 MONTHLY_ALIASES = {
     "month": ["month", "period"],
-    "requests": ["requests", "volume"],
-    "resolved": ["resolved", "closed"],
+    "requests": ["requests", "volume", "request count", "total requests"],
+    "resolved": ["resolved", "closed", "completed", "resolved count"],
     "avg_hrs": ["avg hrs", "avg hours", "average hours"],
     "p95_hrs": ["p95 hrs", "p95 hours", "p95"],
-    "csat": ["csat", "satisfaction"],
-    "variance_pct": ["variance", "variance pct"],
+    "csat": ["csat", "satisfaction", "customer satisfaction"],
+    "variance_pct": ["variance", "variance pct", "variance percent", "variance %"],
     "comment": ["comment", "comments", "notes"],
 }
 DQ_ALIASES = {
@@ -147,6 +162,7 @@ def _cell(row: list[str], mapping: dict[str, int], field: str) -> Optional[str]:
 def parse_master(meta: dict, mapping: dict[str, int]) -> list[MasterRecord]:
     records = []
     pages = meta.get("pages") or [meta.get("page", 1)]
+    headers = list(meta.get("headers") or meta.get("columns", []))
     for row in meta["rows"]:
         raw_date = text_or_none(_cell(row, mapping, "date_raw"))
         iso, date_flag = parse_date(raw_date)
@@ -159,13 +175,39 @@ def parse_master(meta: dict, mapping: dict[str, int]) -> list[MasterRecord]:
             flags.append("possible_duplicate")
         records.append(MasterRecord(
             record_id=text_or_none(_cell(row, mapping, "record_id")),
+            name=text_or_none(_cell(row, mapping, "name")),
             date_raw=raw_date, date_iso=iso,
             entity_site=text_or_none(_cell(row, mapping, "entity_site")),
+            location=text_or_none(_cell(row, mapping, "location"))
+            or text_or_none(_cell(row, mapping, "entity_site")),
+            department=text_or_none(_cell(row, mapping, "department")),
             category=text_or_none(_cell(row, mapping, "category")),
+            amount=to_number(_cell(row, mapping, "amount")),
+            quantity=to_number(_cell(row, mapping, "quantity")),
+            unit_price=to_number(_cell(row, mapping, "unit_price")),
+            discount=to_number(_cell(row, mapping, "discount")),
+            priority=text_or_none(_cell(row, mapping, "priority")),
+            email=text_or_none(_cell(row, mapping, "email")),
+            phone=text_or_none(_cell(row, mapping, "phone")),
+            product=text_or_none(_cell(row, mapping, "product")),
+            code=text_or_none(_cell(row, mapping, "code")),
+            score=to_number(_cell(row, mapping, "score")),
+            last_updated_raw=text_or_none(_cell(row, mapping, "last_updated_raw")),
             metric_a=to_number(_cell(row, mapping, "metric_a")),
             metric_b=to_number(_cell(row, mapping, "metric_b")),
             status=text_or_none(_cell(row, mapping, "status")),
             owner=owner, notes=notes, source_pages=list(pages), flags=flags,
+            manager=text_or_none(_cell(row, mapping, "manager")),
+            source_fields={
+                header: row[index] if index < len(row) else ""
+                for index, header in enumerate(headers)
+                if index not in set(mapping.values())
+                and index < len(row)
+                and row[index] not in (None, "")
+            },
+            source_file=meta.get("file_name") or meta.get("source"),
+            sheet_name=meta.get("sheet_name") or meta.get("sheet"),
+            block_range=meta.get("block_range"),
         ))
     ids = Counter(r.record_id for r in records if r.record_id)
     for record in records:
@@ -240,6 +282,10 @@ def to_structured(meta: dict) -> StructuredTable:
         page_number=pages[0] if pages else None,
         headers=list(meta.get("headers") or meta.get("columns", [])),
         rows=[list(row) for row in meta.get("rows", [])],
+        file_name=meta.get("file_name"),
+        sheet_name=meta.get("sheet_name") or meta.get("sheet"),
+        sheet_index=meta.get("sheet_index"),
+        block_range=meta.get("block_range"),
     )
 
 
@@ -259,9 +305,20 @@ def parse_tables(documents) -> dict:
             continue
         columns = meta.get("columns", [])
 
+        if meta.get("file_type") in {"xlsx", "xlsm"} and meta.get("secondary_sheet"):
+            out["other_tables"].append(to_generic(meta))
+            out["ancillary_tables"].append(to_structured(meta))
+            continue
+
         if meta.get("has_header"):
             master = match_columns(columns, MASTER_ALIASES)
-            if {"record_id", "status", "date_raw"} <= master.keys() and len(master) >= 6:
+            identity_fields = {"record_id", "date_raw", "status", "entity_site", "department", "amount"}
+            has_record_identity = (
+                {"record_id", "date_raw", "status"} <= master.keys()
+                or (len(master) >= 5 and bool({"record_id", "date_raw"} & master.keys()))
+                or len(identity_fields.intersection(master)) >= 4
+            )
+            if has_record_identity:
                 out["master_records"].extend(parse_master(meta, master))
                 out["table_ids"].setdefault("master_records", []).append(meta.get("table_id"))
                 continue

@@ -11,7 +11,7 @@ The **RAG Document Extraction Pipeline** is designed to extract meaningful and s
 The system accepts documents such as:
 
 - PDF (`.pdf`)
-- Excel (`.xlsx`)
+- Excel (`.xlsx`, `.xlsm`)
 - Word (`.doc`, `.docx`)
 
 and processes them through a multi-stage pipeline involving:
@@ -60,6 +60,28 @@ This project addresses the problem by combining traditional document processing 
 - 📦 Structured `.txt` output generation
 - 🔐 Environment-based API key configuration
 - 🧱 Modular and extensible architecture
+
+### Excel workbook handling
+
+Excel ingestion inspects every worksheet in `.xlsx` and `.xlsm` workbooks,
+splits independent blocks separated by empty rows or columns, expands merged
+cells, and prefers calculated formula values while retaining formulas when no
+cached result exists. Multi-column blocks remain structured tables with their
+headers, rows, sheet index/name, source filename, and A1 block range. One-column
+notes remain document text. Recognized tables on the primary sheet enter the
+typed table parser; untyped blocks and tables on secondary sheets are preserved
+as ancillary tables.
+
+Reports serialize every extracted record and table row; output generation has no
+preview cap. Structured table parsing runs over the complete ingested document
+elements, independently of the bounded retrieval contexts used for LLM-only
+document metadata and field-note extraction. Report headers show the actual
+record counts, and typed transaction records retain their original source
+attributes in dedicated schema fields. Recognized aliases such as Name,
+Department, Location, Date, Status, Amount, and Priority are mapped directly;
+legacy semicolon-delimited key/value data is promoted during schema validation.
+Only unmatched, non-empty metadata is retained in `source_fields`, which is
+excluded from the human-readable master-record report.
 
 ---
 

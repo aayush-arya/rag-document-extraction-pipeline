@@ -17,12 +17,15 @@ Everything is imported lazily, so the pipeline runs without these extras.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import logging
 import os
 import re
 import shutil
 import statistics
+
+from pipeline_cache import cache_get, cache_put
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +174,15 @@ def ocr_image(image) -> str:
     """PIL image -> text ('' when no backend is available or OCR fails)."""
     global _warned
     backend = _resolve_backend()
+    buffer = io.BytesIO()
+    image.convert("RGB").save(buffer, format="PNG")
+    digest = hashlib.sha256(
+        f"{backend}:{OCR_DPI}:".encode() + buffer.getvalue()
+    ).hexdigest()
+    cached = cache_get("ocr", digest)
+    if isinstance(cached, str):
+        return cached
+
     if backend == "none":
         if not _warned:
             logger.warning("OCR needed but no backend available (install Tesseract, "
@@ -188,4 +200,7 @@ def ocr_image(image) -> str:
     except Exception as error:  # OCR must never crash the pipeline
         logger.warning("OCR (%s) failed: %s", backend, error)
         return ""
-    return _tidy(text)
+    text = _tidy(text)
+    if text:
+        cache_put("ocr", digest, text)
+    return text

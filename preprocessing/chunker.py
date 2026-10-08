@@ -77,7 +77,10 @@ def _fit_words(piece: str, budget: int, count) -> list[str]:
 
 
 def _base_meta(meta: dict) -> dict:
-    keep = ("source", "file_type", "sheet", "section")
+    keep = (
+        "source", "file_type", "file_name", "sheet", "sheet_name", "sheet_index",
+        "block_range", "section",
+    )
     return {k: meta[k] for k in keep if k in meta}
 
 

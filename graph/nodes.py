@@ -11,7 +11,8 @@ from rag.context_builder import build_contexts
 
 from extraction.extractor import create_extractor
 
-from output.txt_writer import write_json, write_txt
+from output.json_writer import write_json
+from output.report_writer import write_txt
 
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "data/output")
 MAX_ATTEMPTS = int(os.getenv("MAX_EXTRACTION_ATTEMPTS", "2"))

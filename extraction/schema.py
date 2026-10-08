@@ -12,9 +12,10 @@ Raw text is always preserved (``date_raw`` ...); normalised values (``date_iso``
 are only filled when the raw value is unambiguous.
 """
 
+import re
 from typing import Any, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 Number = Union[int, float]
 
@@ -50,17 +51,93 @@ class FieldNotesResult(BaseModel):
 
 class MasterRecord(BaseModel):
     record_id: Optional[str] = None
+    name: Optional[str] = None
     date_raw: Optional[str] = None
     date_iso: Optional[str] = Field(default=None, description="ISO date, only when the raw date is unambiguous")
     entity_site: Optional[str] = None
+    location: Optional[str] = None
+    department: Optional[str] = None
     category: Optional[str] = None
+    amount: Optional[Number] = None
+    quantity: Optional[Number] = None
+    unit_price: Optional[Number] = None
+    discount: Optional[Number] = None
+    priority: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    product: Optional[str] = None
+    code: Optional[str] = None
+    score: Optional[Number] = None
+    last_updated_raw: Optional[str] = None
     metric_a: Optional[Number] = None
     metric_b: Optional[Number] = None
     status: Optional[str] = None
     owner: Optional[str] = None
+    manager: Optional[str] = None
     notes: Optional[str] = None
+    source_fields: dict[str, str] = Field(default_factory=dict)
+    source_file: Optional[str] = None
+    sheet_name: Optional[str] = None
+    block_range: Optional[str] = None
     source_pages: list[int] = Field(default_factory=list)
     flags: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_source_fields(cls, values):
+        """Promote aliased and legacy semicolon key/value attributes to typed fields."""
+        if not isinstance(values, dict):
+            return values
+
+        alias_targets = {
+            "id": "record_id", "record id": "record_id", "record": "record_id",
+            "ticket id": "record_id", "ref": "record_id",
+            "name": "name", "full name": "name", "employee name": "name",
+            "department": "department", "dept": "department", "business unit": "department",
+            "location": "location", "office": "location", "city": "location",
+            "date": "date_raw", "record date": "date_raw", "created date": "date_raw",
+            "status": "status", "record status": "status",
+            "amount": "amount", "total": "amount", "value": "amount",
+            "priority": "priority", "urgency": "priority",
+        }
+
+        def normalized_key(key):
+            return re.sub(r"[^a-z0-9]+", " ", str(key).lower()).strip()
+
+        source = values.get("source_fields")
+        if isinstance(source, str):
+            source_pairs = {}
+            for pair in source.split(";"):
+                key, separator, value = pair.partition("=")
+                if separator and key.strip():
+                    source_pairs[key.strip()] = value.strip()
+        elif isinstance(source, dict):
+            source_pairs = dict(source)
+        else:
+            source_pairs = {}
+
+        # Also accept raw source column names supplied directly to model_validate.
+        inputs = dict(source_pairs)
+        for key, value in values.items():
+            target = alias_targets.get(normalized_key(key))
+            if target and key != target:
+                inputs.setdefault(key, value)
+
+        residual = {}
+        for key, value in inputs.items():
+            target = alias_targets.get(normalized_key(key))
+            if not target:
+                residual[str(key)] = "" if value is None else str(value)
+                continue
+            if values.get(target) in (None, ""):
+                values[target] = value
+            if target == "location" and values.get("entity_site") in (None, ""):
+                values["entity_site"] = value
+
+        values["source_fields"] = residual
+        if values.get("location") and not values.get("entity_site"):
+            values["entity_site"] = values["location"]
+        return values
 
 
 class MonthlyPerformance(BaseModel):
@@ -118,6 +195,15 @@ class StructuredTable(BaseModel):
     page_number: Optional[int] = None
     headers: List[str] = Field(default_factory=list)
     rows: List[List[str]] = Field(default_factory=list)
+    file_name: Optional[str] = None
+    sheet_name: Optional[str] = None
+    sheet_index: Optional[int] = None
+    block_range: Optional[str] = None
+
+
+class OCRPageText(BaseModel):
+    page_number: Optional[int] = None
+    text: str
 
 
 class ExtractedDocument(BaseModel):
@@ -130,5 +216,6 @@ class ExtractedDocument(BaseModel):
     field_notes: list[FieldNote] = Field(default_factory=list)
     other_tables: list[GenericTable] = Field(default_factory=list)
     ancillary_tables: List[StructuredTable] = Field(default_factory=list)
+    ocr_text: list[OCRPageText] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     report: dict[str, Any] = Field(default_factory=dict)

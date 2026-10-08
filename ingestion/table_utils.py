@@ -125,6 +125,9 @@ class RawTable:
     bottom: float = 0.0
     page_height: float = 0.0
     sheet: Optional[str] = None
+    file_name: Optional[str] = None
+    block_range: Optional[str] = None
+    sheet_index: Optional[int] = None
     header_row: Optional[list[str]] = None   # raw header cells (to undo a false header)
     paged: bool = True                       # False for xlsx/docx (page numbers meaningless)
     merged_parts: int = 1
@@ -255,4 +258,11 @@ def table_to_document(table: RawTable, source: str, file_type: str, table_id: st
     }
     if table.sheet:
         metadata["sheet"] = table.sheet
+        metadata["sheet_name"] = table.sheet
+    if table.file_name:
+        metadata["file_name"] = table.file_name
+    if table.block_range:
+        metadata["block_range"] = table.block_range
+    if table.sheet_index is not None:
+        metadata["sheet_index"] = table.sheet_index
     return Document(page_content="\n".join(lines), metadata=metadata)

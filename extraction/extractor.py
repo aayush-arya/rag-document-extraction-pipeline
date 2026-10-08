@@ -10,15 +10,20 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 import re
 import time
 from typing import Any, Callable, Optional
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from .llm import get_llm
+from pipeline_cache import cache_get, cache_put
+
+from .llm import get_llm, is_quota_exhausted, llm_cache_identity
 from .schema import (
     DocumentInfo, ExtractedDocument, FieldNote, FieldNoteDraft, FieldNotesResult,
+    OCRPageText,
 )
 from .table_parser import parse_tables
 
@@ -77,7 +82,7 @@ def _retry(call: Callable[[], Any], attempts: int = 3):
         try:
             return call()
         except Exception as error:                      # network / quota / parse errors
-            if "RESOURCE_EXHAUSTED" in str(error) or "429" in str(error):
+            if is_quota_exhausted(error):
                 raise
             logger.warning("LLM call failed (%s), retry %s/%s", error, attempt, attempts - 1)
             time.sleep(delay)
@@ -94,6 +99,7 @@ def create_extractor(llm=None):
     ``llm`` can be injected (tests / other providers); default is Gemini.
     """
     state = {"llm": llm}
+    injected_llm = llm is not None
 
     def structured(schema):
         if state["llm"] is None:
@@ -102,12 +108,42 @@ def create_extractor(llm=None):
 
     def run(schema, prompt, context):
         messages = prompt.format_messages(context=context)
-        return _retry(lambda: structured(schema).invoke(messages))
+        identity = (
+            f"injected:{type(state['llm']).__module__}.{type(state['llm']).__qualname__}:{id(state['llm'])}"
+            if injected_llm else llm_cache_identity()
+        )
+        cache_payload = {
+            "identity": identity,
+            "schema": schema.model_json_schema(),
+            "messages": [{"type": type(message).__name__, "content": message.content}
+                         for message in messages],
+        }
+        cache_key = hashlib.sha256(
+            json.dumps(cache_payload, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
+        ).hexdigest()
+        cached = cache_get("llm", cache_key)
+        if isinstance(cached, dict):
+            return schema.model_validate(cached)
+        try:
+            result = _retry(lambda: structured(schema).invoke(messages))
+        except Exception as error:
+            if is_quota_exhausted(error):
+                state["quota_exhausted"] = True
+            raise
+        if hasattr(result, "model_dump"):
+            cache_put("llm", cache_key, result.model_dump(mode="json"))
+        elif isinstance(result, dict):
+            cache_put("llm", cache_key, result)
+        return result
 
     def extract(documents, contexts: dict[str, str], source_file: Optional[str] = None) -> ExtractedDocument:
         warnings: list[str] = []
         parsed = parse_tables(documents)
         source_text = "\n".join(d.page_content for d in documents)
+        ocr_text = [
+            OCRPageText(page_number=doc.metadata.get("page"), text=doc.page_content)
+            for doc in documents if doc.metadata.get("element_type") == "ocr_text"
+        ]
 
         # ---- document info (LLM, grounded) ---------------------------------
         info = DocumentInfo()
@@ -131,7 +167,9 @@ def create_extractor(llm=None):
         notes_context = contexts.get("field_notes", "")
         if notes_context.strip():
             drafts = parse_pipe_notes(notes_context)
-            if not drafts:
+            if not drafts and state.get("quota_exhausted"):
+                warnings.append("field_notes extraction skipped: LLM quota exhausted")
+            elif not drafts:
                 try:
                     drafts = run(FieldNotesResult, NOTES_PROMPT, notes_context).notes
                 except Exception as error:
@@ -172,6 +210,7 @@ def create_extractor(llm=None):
             field_notes=notes,
             other_tables=parsed["other_tables"],
             ancillary_tables=parsed["ancillary_tables"],
+            ocr_text=ocr_text,
             warnings=warnings,
             report=report,
         )

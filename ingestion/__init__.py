@@ -29,7 +29,7 @@ def load_document(file_path: str):
 
     if file_type == "xls":
         raise ValueError(
-            "Old .xls files are not supported. Please re-save the file as .xlsx first."
+            "Old .xls files are not supported. Please re-save the file as .xlsx or .xlsm first."
         )
 
     raise ValueError(f"Unsupported file type: {file_type}")
